@@ -47,6 +47,18 @@ cl /O1 shim.c
 This produces `shim.exe`. The source uses only Windows system APIs and links
 against `Shell32.lib` through a source pragma.
 
+## Test
+
+The integration suite compiles the launcher and a small target executable, so
+run it from a Visual Studio Developer Command Prompt:
+
+```bat
+py -m unittest discover -s tests -v
+```
+
+The tests use only the Python standard library. When MSVC's `cl` is not on
+`PATH`, the suite is reported as skipped rather than failing.
+
 ## Create a command shim
 
 1. Copy `shim.exe` to the command name you want to expose. For example:

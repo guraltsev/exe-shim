@@ -1,7 +1,7 @@
 # C API Documentation Style
 
 This file controls public C API and source-file documentation. Use
-`docs/python_rules.md` for code organization and inline comments.
+`docs/coding_rules.md` for code organization and inline comments.
 
 API comments document the public contract, intended use, and important behavior
 of headers, functions, macros, types, and callback interfaces. They should not

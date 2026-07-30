@@ -1,6 +1,6 @@
 # C Programming Style
 
-These rules control C programming style. Use `docs/docstring_schema.md` for
+These rules control C programming style. Use `docs/documentation_rules.md` for
 public API and file documentation.
 
 Write code as an explained calculation: the reader should understand the role
