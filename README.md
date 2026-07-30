@@ -1,71 +1,117 @@
-# `shim.c`
+# exe-shim
 
-[`shim.c`](./shim.c) is a simple Windows program that, when started:
-1. Looks for a file with the exact same name as the running program, but with
-   the extension `shim` (e.g. `C:\bin\foo.exe` will read the file `C:\bin\foo.shim`).
-2. Reads and [parses](#shim-format) the files into a
-   [Scoop](https://github.com/lukesampson/scoop) shim format.
-3. Executes the target executable with the given arguments.
+`exe-shim` is a small native Windows executable launcher for
+[Scoop](https://scoop.sh)-style shims. Copy the compiled `shim.exe` to the
+name of a command, place a matching `.shim` file beside it, and run the
+command as usual.
 
-`shim.c` was originally made to replace [Scoop](https://github.com/lukesampson/scoop)'s
-[`shim.cs`](https://github.com/lukesampson/scoop/blob/96de9c14bb483f9278e4b0a9e22b1923ee752901/supporting/shimexe/shim.cs)
-since it had several important flaws:
-1. [It was made in C#](https://github.com/lukesampson/scoop/tree/96de9c14bb483f9278e4b0a9e22b1923ee752901/supporting/shimexe),
-   and thus required an instantiation of a .NET command line app everytime it was started,
-   which can make a command run much slower than if it had been ran directly;
-2. [It](https://github.com/lukesampson/scoop/issues/2339) [did](https://github.com/lukesampson/scoop/issues/1896)
-   [not](https://github.com/felixse/FluentTerminal/issues/221) handle Ctrl+C and other
-   signals correctly, which could be quite infuriating (and essentially killing REPLs and long-running apps).
+For example, `gs.exe` reads `gs.shim`. The launcher starts the target named in
+that file, adds any configured arguments, forwards the arguments supplied by
+the user, and exits with the target process's exit code.
 
-[`shim.c`](./shim.c) is:
-- **Faster**, because it does not use the .NET Framework, and parses the `.shim` file in a simpler way.
-- **More efficient**, because by the time the target of the shim is started, all allocated memory will have been freed.
-- And more importantly, it **works better**:
-  - Signals originating from pressing `Ctrl+C` are ignored, and therefore handled directly by the spawned child.
-    Your processes and REPLs will no longer close when pressing `Ctrl+C`.
-  - Children are automatically killed when the shim process is killed. No more orphaned processes and weird behaviors.
+## How it works
 
-> **Note**: This project is not affiliated with [Scoop](https://github.com/lukesampson/scoop).
+When `C:\Bin\gs.exe` runs, it looks for `C:\Bin\gs.shim`. A shim file
+contains a target executable and, optionally, arguments that should always be
+provided to it:
 
-
-## Installation for Scoop
-
-- In a Visual Studio command prompt, run `cl /O1 shim.c`.
-- Replace any `.exe` in `scoop\shims` by `shim.exe`.
-
-An additional script, `repshims.bat`, is provided. It will replace all `.exe`s in the user's Scoop directory
-by `shim.exe`.
-
-
-## Example
-
-Given the following shim `gs.shim`:
-```
-path = C:\Program Files\Git\git.exe
-args = status -u
-```
-
-In this directory, where `gs.exe` is the compiled `shim.c`:
-```
-C:\Bin\
-   gs.exe
-   gs.shim
-```
-
-Then calling `gs -s` will run the program `C:\Program Files\Git\git.exe status -u -s`.
-
-
-## Shim format
-
-Shims follow the same format as Scoop's shims: line-separated `key = value` pairs.
-```
+```ini
 path = C:\Program Files\Git\git.exe
 args = status -uno
 ```
 
-`path` is a required value, but `args` can be omitted. Also, do note that lines **must** end with a line feed.
+With that setup, running:
 
+```powershell
+gs -s
+```
+
+launches the equivalent of:
+
+```powershell
+& 'C:\Program Files\Git\git.exe' status -uno -s
+```
+
+Paths containing spaces are supported. The launcher quotes an unquoted target
+path when necessary.
+
+## Build
+
+Build with the Microsoft C/C++ compiler from a Visual Studio Developer Command
+Prompt:
+
+```bat
+cl /O1 shim.c
+```
+
+This produces `shim.exe`. The source uses only Windows system APIs and links
+against `Shell32.lib` through a source pragma.
+
+## Create a command shim
+
+1. Copy `shim.exe` to the command name you want to expose. For example:
+
+   ```bat
+   copy shim.exe C:\Bin\gs.exe
+   ```
+
+2. Create a file with the same base name and the `.shim` extension:
+
+   ```ini
+   path = C:\Program Files\Git\git.exe
+   args = status -uno
+   ```
+
+3. Ensure the directory containing `gs.exe` is on `PATH`, then run `gs` from a
+   command prompt or PowerShell.
+
+## Shim-file format
+
+Each setting occupies its own line in `key = value` form:
+
+```ini
+path = C:\path\to\program.exe
+args = optional fixed arguments
+```
+
+`path` is required. `args` is optional. Unrecognized lines are ignored. Use
+the spelling and spaces shown above (`path = ` and `args = `), and save the
+file as UTF-8. End each setting line with a newline.
+
+The configured arguments are placed before arguments supplied on the command
+line. For instance, `args = --color=always` and `tool --help` result in the
+target receiving `--color=always --help`.
+
+## Scoop shims
+
+The format is compatible with Scoop shim files. To replace the executable
+launchers in the default Scoop locations after building `shim.exe`, run:
+
+```bat
+repshims.bat
+```
+
+The script copies the `shim.exe` in its current directory over every `.exe` in
+`%USERPROFILE%\scoop\shims` and `%ProgramData%\scoop\shims`. It does not
+change the `.shim` files. Set `SCOOP` and/or `SCOOP_GLOBAL` before running it
+if your Scoop directories are elsewhere.
+
+## Process and console behavior
+
+The launcher passes console control events, including Ctrl+C, through so the
+target can handle them. It also assigns the started process to a Windows job
+object, so child processes are terminated when the launcher is terminated.
+
+If the target requires elevation, Windows starts it through the shell. In that
+case it may open in a separate window.
+
+## Errors and limits
+
+- The launcher reports an error if its matching `.shim` file cannot be opened,
+  if `path` is missing, or if Windows cannot start the target.
+- The launcher's own executable path is limited to 512 characters.
+- A setting line can be up to 8,191 characters including its newline.
 
 ## License
 
-`SPDX-License-Identifier: MIT OR Unlicense`
+SPDX-License-Identifier: MIT OR Unlicense
