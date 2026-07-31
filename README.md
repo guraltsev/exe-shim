@@ -1,20 +1,33 @@
 # exe-shim
 
-`exe-shim` is a small native Windows executable launcher configured by TOML.
-Copy either `shim-console.exe` or `shim-gui.exe` to the name of a command,
-place a matching `.config.toml` file beside it, and run the command as usual.
+`exe-shim` turns a TOML file into a small, native Windows launcher. Copy a
+launcher executable to the command name you want, place a matching
+`.config.toml` file beside it, and the launcher starts the configured target
+with predictable arguments, environment changes, working directory, and exit
+code handling. It does not invoke a shell, so it avoids shell-specific quoting
+and command-injection behavior.
 
-For example, `gs.exe` reads `gs.shim`. The launcher starts the target named in
-that file, adds any configured arguments, forwards the arguments supplied by
-the user, and exits with the target process's exit code.
+For example, `gs.exe` reads `gs.config.toml`. It can launch Git with fixed
+arguments, append arguments supplied by the caller, and return Git's exit code.
 
-## How it works
+## Use a launcher
 
-When `C:\Bin\gs.exe` runs, it reads exactly `C:\Bin\gs.config.toml`. The
-configuration contains a target executable and optional fixed arguments:
+1. Choose a launcher (see [Console and GUI launchers](#console-and-gui-launchers)).
+2. Copy it to the command name you want to provide.
+3. Create `<command>.config.toml` next to that executable.
+4. Add the directory containing the executable to `PATH` if you want to invoke
+   it by name.
+
+For a `gs` command installed in `C:\Bin`:
+
+```bat
+copy shim-console.exe C:\Bin\gs.exe
+```
+
+Create `C:\Bin\gs.config.toml`:
 
 ```toml
-target = "C:\\Program Files\\Git\\git.exe"
+target = "C:\\Program Files\\Git\\bin\\git.exe"
 
 [[argument]]
 value = "status"
@@ -23,27 +36,117 @@ value = "status"
 value = "-uno"
 ```
 
-With that setup, running:
+Now `gs -s` is equivalent to:
 
 ```powershell
-gs -s
+& 'C:\Program Files\Git\bin\git.exe' status -uno -s
 ```
 
-launches the equivalent of:
+The launcher always reads the configuration next to itself, rather than from
+the current directory. Relative `target`, `working_dir`, and `path_prepend`
+paths are resolved from that configuration directory.
 
-```powershell
-& 'C:\Program Files\Git\git.exe' status -uno -s
+## Console and GUI launchers
+
+Build output contains two launchers with identical TOML configuration behavior:
+
+| Launcher | Use it for | Behavior |
+| --- | --- | --- |
+| `shim-console.exe` | Command-line and terminal tools | Attaches to the calling console. The target inherits terminal behavior, including Ctrl+C handling. |
+| `shim-gui.exe` | Desktop applications opened from Explorer, shortcuts, or file associations | Uses the Windows GUI subsystem, so it does not create a console window when launched outside a terminal. |
+
+Use the console launcher for console targets. A GUI launcher can start a
+console program, but its output and interactive console behavior will not be
+available when it is launched from Explorer. Conversely, starting a GUI target
+through the console launcher from a terminal is valid, but the launcher remains
+attached to that terminal while it waits for the target to exit.
+
+## Common use cases
+
+### Create a Git shortcut
+
+The `gs` example above supplies `status -uno` and forwards additional caller
+arguments. `gs -s` therefore adds `-s` after those fixed arguments.
+
+### Run a project-local tool from any directory
+
+This launcher is relocatable because its paths are relative to its TOML file:
+
+```toml
+target = "bin\\real-tool.exe"
+working_dir = "work"
+forward_arguments = false
+
+[[argument]]
+value = "serve"
 ```
 
-Paths containing spaces are supported. The launcher quotes an unquoted target
-path when necessary.
+Copy the directory containing `tool.exe`, `tool.config.toml`, `bin`, and
+`work` together. `tool.exe` always runs `bin\real-tool.exe` in `work`, and it
+always supplies `serve`; caller arguments are deliberately ignored.
+
+### Set a child-only environment
+
+Use this for tools that need configuration without changing the parent shell:
+
+```toml
+target = "%LOCALAPPDATA%\\Programs\\Example\\tool.exe"
+path_prepend = ["tools"]
+remove_environment = ["VIRTUAL_ENV"]
+
+[environment]
+RUST_LOG = "info"
+TOOL_CACHE = "%LOCALAPPDATA%\\Example\\cache"
+```
+
+Windows `%NAME%` references expand from the launcher's inherited environment.
+The child receives the added `tools` directory first on `PATH`, has
+`VIRTUAL_ENV` removed, and receives the two configured values. These changes
+also apply to its descendants, never to the shell that started the launcher.
+
+### Start an application with elevation
+
+Use a GUI launcher for a desktop application that must request UAC elevation:
+
+```toml
+target = "C:\\Program Files\\Example\\Admin App\\admin-app.exe"
+elevate = true
+```
+
+Windows shows the UAC prompt. If elevation is declined or fails, the launcher
+returns a non-zero exit code and does not start the target unelevated.
+
+## Configuration reference
+
+`target` is required. All other settings are optional:
+
+```toml
+target = "%LOCALAPPDATA%\\Programs\\Example\\tool.exe"
+forward_arguments = true # Defaults to true.
+elevate = false           # Defaults to false.
+working_dir = "project"
+remove_environment = ["VIRTUAL_ENV"]
+path_prepend = ["tools"]
+
+[environment]
+RUST_LOG = "info"
+
+[[argument]]
+value = "--color=always"
+```
+
+Configured `[[argument]]` entries appear before caller arguments.
+`forward_arguments = false` suppresses caller arguments. `remove_environment`
+and `[environment]` may not name the same variable (Windows variable names are
+case-insensitive). Invalid TOML, unknown keys, invalid values, and references
+to unset `%NAME%` variables cause the launcher to fail before starting a
+target. Configuration files must be valid UTF-8.
 
 ## Build
 
-The project is modern C++23, built with CMake. Dependencies are managed by
-[Conan 2](https://docs.conan.io/2/), including the battle-tested `fmt`
-formatting library. From an MSYS2 UCRT64 shell or a Visual Studio developer
-prompt, install dependencies and build:
+The project requires a Windows C++23 toolchain, CMake 3.23 or newer, and Conan
+2. Dependencies, including `fmt` and `tomlplusplus`, are provided by Conan.
+From an MSYS2 UCRT64 shell or a Visual Studio developer prompt:
 
 ```bat
 conan profile detect --force
@@ -52,107 +155,29 @@ cmake --preset conan-release
 cmake --build --preset conan-release
 ```
 
-The resulting `shim-console.exe` and `shim-gui.exe` launchers are in the
-`build` directory. Choose the console binary for command-line tools and the
-GUI binary for applications launched from Explorer or shortcuts.
+The resulting `shim-console.exe` and `shim-gui.exe` files are in the configured
+build output directory.
 
-## Test
+## Testing
 
-Run the integration suite after building:
+Run the automated integration suite after building:
 
 ```bat
 ctest --preset conan-release --output-on-failure
 ```
 
-The test driver uses Python's standard library; CMake builds its disposable
-argument-recording test target with the same toolchain as the launcher.
+The suite uses Python's standard library and exercises configuration lookup,
+arguments, relative paths, environment edits, validation failures, and exit
+code propagation. For checks that require Explorer, console behavior, or UAC,
+follow the [manual testing checklist](tests/MANUAL_TESTING.md).
 
-## Create a command shim
+## Process behavior
 
-1. Copy `shim-console.exe` for terminal tools, or `shim-gui.exe` for a GUI
-   tool that must not open a console window, to the command name you want to
-   expose. For example:
-
-   ```bat
-   copy shim-console.exe C:\Bin\gs.exe
-   ```
-
-2. Create a file with the same base name and the `.config.toml` extension:
-
-   ```toml
-   target = "C:\\Program Files\\Git\\git.exe"
-
-   [[argument]]
-   value = "status"
-
-   [[argument]]
-   value = "-uno"
-   ```
-
-3. Ensure the directory containing `gs.exe` is on `PATH`, then run `gs` from a
-   command prompt or PowerShell.
-
-## Configuration format
-
-`target` is required; relative targets resolve from the configuration file.
-Configured `[[argument]]` values precede caller arguments, and
-`forward_arguments` defaults to `true`. The configuration also supports
-`working_dir`, `elevate`, `[environment]`, `remove_environment`, and
-`path_prepend`. String values expand Windows `%NAME%` references. Unknown
-keys, malformed TOML, unset variables, and ambiguous environment edits fail
-before the target is started.
-
-```toml
-target = "%LOCALAPPDATA%\\Programs\\Example\\tool.exe"
-working_dir = "project"
-remove_environment = ["VIRTUAL_ENV"]
-path_prepend = ["tools"]
-
-[environment]
-RUST_LOG = "info"
-```
-
-## Scoop shims
-
-The format is compatible with Scoop shim files. To replace the executable
-launchers in the default Scoop locations after building `shim.exe`, run:
-
-```bat
-repshims.bat
-```
-
-The script copies `shim-console.exe` in its current directory over every `.exe` in
-`%USERPROFILE%\scoop\shims` and `%ProgramData%\scoop\shims`. It does not
-convert legacy Scoop `.shim` files; create matching `.config.toml` files before
-using those launchers. Set `SCOOP` and/or `SCOOP_GLOBAL` before running it if
-your Scoop directories are elsewhere.
-
-## Process and console behavior
-
-The launcher passes console control events, including Ctrl+C, through so the
-target can handle them. It also assigns the started process to a Windows job
-object, so child processes are terminated when the launcher is terminated.
-
-If the target requires elevation, Windows starts it through the shell. In that
-case it may open in a separate window.
-
-## Safety and reliability
-
-- The launcher uses C++23 dynamic strings and containers rather than fixed
-  buffers or hand-calculated buffer lengths. Line parsing is stream based, and
-  the only mutable Win32 command line is an owned, explicitly NUL-terminated
-  vector.
-- Windows handles have RAII ownership, so every acquired process, thread, and
-  job handle is closed on every return path.
-- Command-line parsing uses Windows' `CommandLineToArgvW`, and forwarded
-  arguments are escaped using the documented Windows quoting rules instead of
-  custom pointer or index parsing.
-
-## Errors
-
-- The launcher reports the expected `.config.toml` path if it cannot be opened
-  or parsed, and names invalid configuration keys.
-- TOML files must be valid UTF-8.
+The launcher waits for the target and returns its exit code. Non-elevated
+launches run the target in a Windows job object, so child processes are
+terminated when the launcher is terminated. Console launchers suppress the
+launcher's default Ctrl+C handling so the target can receive console control
+events.
 
 ## License
 

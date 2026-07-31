@@ -2,9 +2,9 @@
 
 ## Summary
 
-Make TOML the configuration format for `exe-shim`.  Every launcher remains a
-copy of `shim.exe`; the TOML configuration beside it determines how it starts
-its target.
+Make TOML the configuration format for `exe-shim`. Every launcher is a copy of
+either `shim-console.exe` or `shim-gui.exe`; the TOML configuration beside it
+determines how it starts its target.
 
 For `C:\\Bin\\tool.exe`, the launcher reads `C:\\Bin\\tool.config.toml`.
 

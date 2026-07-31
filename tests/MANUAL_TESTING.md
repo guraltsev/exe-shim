@@ -1,11 +1,11 @@
-# Manual testing TOML-configured shims
+# Manual testing TOML-configured launchers
 
 Build the project, then copy `shim-console.exe` into a disposable directory as
 `tool.exe`. Copy `fixtures/arguments.toml` beside it as `tool.config.toml` and
 replace `{{target}}` with a real executable such as
 `C:\\Windows\\System32\\cmd.exe`.
 
-From a different current directory, run `tool.exe /c echo shim-ok`. Confirm
+From a different current directory, run `tool.exe /c echo launcher-ok`. Confirm
 that configured arguments precede user arguments. Repeat with a relative
 target after moving the directory, and verify it resolves from the
 configuration directory.
