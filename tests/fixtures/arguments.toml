@@ -1,0 +1,7 @@
+target = "{{target}}"
+
+[[argument]]
+value = "--fixed"
+
+[[argument]]
+value = "value with spaces"

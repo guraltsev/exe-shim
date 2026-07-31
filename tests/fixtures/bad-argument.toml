@@ -1,0 +1,4 @@
+target = "{{target}}"
+
+[[argument]]
+value = 12

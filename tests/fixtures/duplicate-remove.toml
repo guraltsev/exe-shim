@@ -1,0 +1,2 @@
+target = "{{target}}"
+remove_environment = ["ONE", "one"]

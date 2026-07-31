@@ -1,9 +1,8 @@
 # exe-shim
 
-`exe-shim` is a small native Windows executable launcher for
-[Scoop](https://scoop.sh)-style shims. Copy the compiled `shim.exe` to the
-name of a command, place a matching `.shim` file beside it, and run the
-command as usual.
+`exe-shim` is a small native Windows executable launcher configured by TOML.
+Copy either `shim-console.exe` or `shim-gui.exe` to the name of a command,
+place a matching `.config.toml` file beside it, and run the command as usual.
 
 For example, `gs.exe` reads `gs.shim`. The launcher starts the target named in
 that file, adds any configured arguments, forwards the arguments supplied by
@@ -11,13 +10,17 @@ the user, and exits with the target process's exit code.
 
 ## How it works
 
-When `C:\Bin\gs.exe` runs, it looks for `C:\Bin\gs.shim`. A shim file
-contains a target executable and, optionally, arguments that should always be
-provided to it:
+When `C:\Bin\gs.exe` runs, it reads exactly `C:\Bin\gs.config.toml`. The
+configuration contains a target executable and optional fixed arguments:
 
-```ini
-path = C:\Program Files\Git\git.exe
-args = status -uno
+```toml
+target = "C:\\Program Files\\Git\\git.exe"
+
+[[argument]]
+value = "status"
+
+[[argument]]
+value = "-uno"
 ```
 
 With that setup, running:
@@ -49,7 +52,9 @@ cmake --preset conan-release
 cmake --build --preset conan-release
 ```
 
-The resulting launcher is in the `build` directory.
+The resulting `shim-console.exe` and `shim-gui.exe` launchers are in the
+`build` directory. Choose the console binary for command-line tools and the
+GUI binary for applications launched from Explorer or shortcuts.
 
 ## Test
 
@@ -64,38 +69,48 @@ argument-recording test target with the same toolchain as the launcher.
 
 ## Create a command shim
 
-1. Copy `shim.exe` to the command name you want to expose. For example:
+1. Copy `shim-console.exe` for terminal tools, or `shim-gui.exe` for a GUI
+   tool that must not open a console window, to the command name you want to
+   expose. For example:
 
    ```bat
-   copy shim.exe C:\Bin\gs.exe
+   copy shim-console.exe C:\Bin\gs.exe
    ```
 
-2. Create a file with the same base name and the `.shim` extension:
+2. Create a file with the same base name and the `.config.toml` extension:
 
-   ```ini
-   path = C:\Program Files\Git\git.exe
-   args = status -uno
+   ```toml
+   target = "C:\\Program Files\\Git\\git.exe"
+
+   [[argument]]
+   value = "status"
+
+   [[argument]]
+   value = "-uno"
    ```
 
 3. Ensure the directory containing `gs.exe` is on `PATH`, then run `gs` from a
    command prompt or PowerShell.
 
-## Shim-file format
+## Configuration format
 
-Each setting occupies its own line in `key = value` form:
+`target` is required; relative targets resolve from the configuration file.
+Configured `[[argument]]` values precede caller arguments, and
+`forward_arguments` defaults to `true`. The configuration also supports
+`working_dir`, `elevate`, `[environment]`, `remove_environment`, and
+`path_prepend`. String values expand Windows `%NAME%` references. Unknown
+keys, malformed TOML, unset variables, and ambiguous environment edits fail
+before the target is started.
 
-```ini
-path = C:\path\to\program.exe
-args = optional fixed arguments
+```toml
+target = "%LOCALAPPDATA%\\Programs\\Example\\tool.exe"
+working_dir = "project"
+remove_environment = ["VIRTUAL_ENV"]
+path_prepend = ["tools"]
+
+[environment]
+RUST_LOG = "info"
 ```
-
-`path` is required. `args` is optional. Unrecognized lines are ignored. Use
-the spelling and spaces shown above (`path = ` and `args = `), and save the
-file as UTF-8. End each setting line with a newline.
-
-The configured arguments are placed before arguments supplied on the command
-line. For instance, `args = --color=always` and `tool --help` result in the
-target receiving `--color=always --help`.
 
 ## Scoop shims
 
@@ -106,10 +121,11 @@ launchers in the default Scoop locations after building `shim.exe`, run:
 repshims.bat
 ```
 
-The script copies the `shim.exe` in its current directory over every `.exe` in
+The script copies `shim-console.exe` in its current directory over every `.exe` in
 `%USERPROFILE%\scoop\shims` and `%ProgramData%\scoop\shims`. It does not
-change the `.shim` files. Set `SCOOP` and/or `SCOOP_GLOBAL` before running it
-if your Scoop directories are elsewhere.
+convert legacy Scoop `.shim` files; create matching `.config.toml` files before
+using those launchers. Set `SCOOP` and/or `SCOOP_GLOBAL` before running it if
+your Scoop directories are elsewhere.
 
 ## Process and console behavior
 
@@ -134,9 +150,9 @@ case it may open in a separate window.
 
 ## Errors
 
-- The launcher reports an error if its matching `.shim` file cannot be opened,
-  if `path` is missing, or if Windows cannot start the target.
-- Shim files must be valid UTF-8.
+- The launcher reports the expected `.config.toml` path if it cannot be opened
+  or parsed, and names invalid configuration keys.
+- TOML files must be valid UTF-8.
 
 ## License
 

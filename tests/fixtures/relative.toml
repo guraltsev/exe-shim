@@ -1,0 +1,6 @@
+target = "bin\\recorder.exe"
+working_dir = "work"
+forward_arguments = false
+
+[[argument]]
+value = "fixed"

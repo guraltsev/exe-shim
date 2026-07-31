@@ -8,7 +8,7 @@ class ExeShimConan(ConanFile):
     package_type = "application"
     settings = "os", "compiler", "build_type", "arch"
     generators = "CMakeDeps", "CMakeToolchain"
-    requires = "fmt/11.1.4"
+    requires = "fmt/11.1.4", "tomlplusplus/3.4.0"
 
     def build(self):
         cmake = CMake(self)

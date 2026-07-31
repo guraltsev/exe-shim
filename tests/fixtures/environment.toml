@@ -1,0 +1,8 @@
+target = "%TEST_TARGET%"
+remove_environment = ["REMOVE_ME"]
+
+[environment]
+SHIM_TEST_VALUE = "%SOURCE_VALUE%-child"
+
+[[argument]]
+value = "%TEST_ARG%"

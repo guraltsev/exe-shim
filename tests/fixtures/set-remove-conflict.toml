@@ -1,0 +1,5 @@
+target = "{{target}}"
+remove_environment = ["SHIM_TEST_VALUE"]
+
+[environment]
+shim_test_value = "replacement"
