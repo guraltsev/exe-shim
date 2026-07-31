@@ -1,10 +1,4 @@
-"""End-to-end tests for the Windows shim executable.
-
-The tests compile the launcher and a small argument-recording target with the
-Microsoft C compiler, then run copies of the launcher alongside generated shim
-files.  They deliberately use only the Python standard library so a Developer
-Command Prompt is the only prerequisite.
-"""
+"""End-to-end tests for the CMake-built Windows shim executable."""
 
 from __future__ import annotations
 
@@ -16,79 +10,39 @@ import unittest
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SHIM_SOURCE = PROJECT_ROOT / "shim.c"
-
-RECORDER_SOURCE = r'''
-#include <stdio.h>
-#include <stdlib.h>
-#include <Windows.h>
-
-int wmain(int argc, wchar_t** argv)
-{
-  wchar_t output[MAX_PATH];
-  FILE* file = NULL;
-
-  if (GetEnvironmentVariableW(L"SHIM_TEST_OUTPUT", output, MAX_PATH) == 0)
-    return 90;
-
-  if (_wfopen_s(&file, output, L"w, ccs=UTF-8") != 0)
-    return 91;
-
-  for (int i = 0; i < argc; ++i)
-    fwprintf(file, L"%ls\n", argv[i]);
-
-  fclose(file);
-
-  wchar_t exit_code[16];
-  if (GetEnvironmentVariableW(L"SHIM_TEST_EXIT_CODE", exit_code, 16) != 0)
-    return _wtoi(exit_code);
-
-  return 0;
-}
-'''
+SHIM_BINARY_ENVIRONMENT_VARIABLE = "EXE_SHIM_BINARY"
+RECORDER_BINARY_ENVIRONMENT_VARIABLE = "EXE_SHIM_RECORDER"
 
 
-class ShimIntegrationTests(unittest.TestCase):
+class TestShimIntegration(unittest.TestCase):
     """Run a compiled shim against disposable shim files and target programs."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.compiler = shutil.which("cl")
-        if cls.compiler is None:
-            raise unittest.SkipTest(
-                "MSVC 'cl' was not found; run these tests from a Visual Studio Developer Command Prompt."
+        shim_binary = os.environ.get(SHIM_BINARY_ENVIRONMENT_VARIABLE)
+        recorder_binary = os.environ.get(RECORDER_BINARY_ENVIRONMENT_VARIABLE)
+        if shim_binary is None or recorder_binary is None:
+            cls.compiler_error = (
+                "Set EXE_SHIM_BINARY and EXE_SHIM_RECORDER by running CTest after a CMake build."
             )
+            return
 
         cls.tempdir = tempfile.TemporaryDirectory(prefix="exe-shim-tests-")
         cls.workdir = Path(cls.tempdir.name)
-        cls.shim_binary = cls.workdir / "shim.exe"
+        cls.shim_binary = Path(shim_binary)
         cls.target = cls.workdir / "target with spaces" / "argument recorder.exe"
         cls.target.parent.mkdir()
-
-        cls._compile(SHIM_SOURCE, cls.shim_binary)
-        recorder_source = cls.workdir / "argument_recorder.c"
-        recorder_source.write_text(RECORDER_SOURCE, encoding="utf-8")
-        cls._compile(recorder_source, cls.target)
+        shutil.copy2(recorder_binary, cls.target)
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.tempdir.cleanup()
-
-    @classmethod
-    def _compile(cls, source: Path, output: Path) -> None:
-        result = subprocess.run(
-            [cls.compiler, "/nologo", "/O1", f"/Fe{output}", str(source)],
-            cwd=cls.workdir,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise AssertionError(
-                f"Could not compile {source.name}:\n{result.stdout}\n{result.stderr}"
-            )
+        if hasattr(cls, "tempdir"):
+            cls.tempdir.cleanup()
 
     def setUp(self) -> None:
+        if not hasattr(self, "workdir"):
+            self.skipTest(self.compiler_error)
+
         self.case_dir = Path(tempfile.mkdtemp(dir=self.workdir, prefix="case-"))
 
     def tearDown(self) -> None:

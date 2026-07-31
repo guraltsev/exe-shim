@@ -1,3 +1,26 @@
+# Local editor settings
 .vscode/
+
+# Python environments and test artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Native build and debug artifacts
 *.exe
 *.obj
+*.pdb
+*.ilk
+*.idb
+*.dll
+*.lib
+*.exp
+build/
+CMakeUserPresets.json
+Debug/
+Release/
+x64/
+x86/

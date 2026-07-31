@@ -1,6 +1,6 @@
-# C API Documentation Style
+# C++ API Documentation Style
 
-This file controls public C API and source-file documentation. Use
+This file controls public C++ API and source-file documentation. Use
 `docs/coding_rules.md` for code organization and inline comments.
 
 API comments document the public contract, intended use, and important behavior

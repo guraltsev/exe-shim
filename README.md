@@ -37,27 +37,30 @@ path when necessary.
 
 ## Build
 
-Build with the Microsoft C/C++ compiler from a Visual Studio Developer Command
-Prompt:
+The project is modern C++23, built with CMake. Dependencies are managed by
+[Conan 2](https://docs.conan.io/2/), including the battle-tested `fmt`
+formatting library. From an MSYS2 UCRT64 shell or a Visual Studio developer
+prompt, install dependencies and build:
 
 ```bat
-cl /O1 shim.c
+conan profile detect --force
+conan install . --output-folder=build --build=missing
+cmake --preset conan-release
+cmake --build --preset conan-release
 ```
 
-This produces `shim.exe`. The source uses only Windows system APIs and links
-against `Shell32.lib` through a source pragma.
+The resulting launcher is in the `build` directory.
 
 ## Test
 
-The integration suite compiles the launcher and a small target executable, so
-run it from a Visual Studio Developer Command Prompt:
+Run the integration suite after building:
 
 ```bat
-py -m unittest discover -s tests -v
+ctest --preset conan-release --output-on-failure
 ```
 
-The tests use only the Python standard library. When MSVC's `cl` is not on
-`PATH`, the suite is reported as skipped rather than failing.
+The test driver uses Python's standard library; CMake builds its disposable
+argument-recording test target with the same toolchain as the launcher.
 
 ## Create a command shim
 
@@ -117,12 +120,23 @@ object, so child processes are terminated when the launcher is terminated.
 If the target requires elevation, Windows starts it through the shell. In that
 case it may open in a separate window.
 
-## Errors and limits
+## Safety and reliability
+
+- The launcher uses C++23 dynamic strings and containers rather than fixed
+  buffers or hand-calculated buffer lengths. Line parsing is stream based, and
+  the only mutable Win32 command line is an owned, explicitly NUL-terminated
+  vector.
+- Windows handles have RAII ownership, so every acquired process, thread, and
+  job handle is closed on every return path.
+- Command-line parsing uses Windows' `CommandLineToArgvW`, and forwarded
+  arguments are escaped using the documented Windows quoting rules instead of
+  custom pointer or index parsing.
+
+## Errors
 
 - The launcher reports an error if its matching `.shim` file cannot be opened,
   if `path` is missing, or if Windows cannot start the target.
-- The launcher's own executable path is limited to 512 characters.
-- A setting line can be up to 8,191 characters including its newline.
+- Shim files must be valid UTF-8.
 
 ## License
 
