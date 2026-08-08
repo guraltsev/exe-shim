@@ -19,6 +19,7 @@ htmlcov/
 *.lib
 *.exp
 build/
+_artifacts/
 CMakeUserPresets.json
 Debug/
 Release/
