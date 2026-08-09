@@ -20,7 +20,7 @@ int wmain(int argc, wchar_t** argv) {
 
   std::wstring report_path(output);
   report_path += L".context";
-  std::wofstream report(report_path);
+  std::wofstream report(report_path.c_str());
   std::wstring directory(32768, L'\0');
   const DWORD length = GetCurrentDirectoryW(static_cast<DWORD>(directory.size()), directory.data());
   report << L"cwd=" << directory.substr(0, length) << L'\n';

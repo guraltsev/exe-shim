@@ -33,32 +33,32 @@ class TestTomlConfiguredShims(unittest.TestCase):
         path = self.case_dir / "tool with spaces.exe"; shutil.copy2(self.shim_binary, path)
         if config is not None: path.with_suffix(".config.toml").write_text(config, encoding="utf-8")
         return path
-    def run(self, launcher, *args, environment=None, exit_code=0):
+    def run_launcher(self, launcher, *args, environment=None, exit_code=0):
         self.output = self.case_dir / "arguments.txt"; env = os.environ | {"SHIM_TEST_OUTPUT": str(self.output), "SHIM_TEST_EXIT_CODE": str(exit_code)}
         if environment: env.update(environment)
         return subprocess.run([str(launcher), *args], cwd=self.case_dir, env=env, capture_output=True, text=True, timeout=15)
     def arguments(self): return self.output.read_text(encoding="utf-8-sig").splitlines()[1:]
     def context(self): return dict(x.split("=", 1) for x in Path(str(self.output) + ".context").read_text(encoding="utf-8-sig").splitlines())
     def test_order_default_forwarding_and_exit_code(self):
-        result = self.run(self.launcher(self.fixture("arguments.toml", target=self.target)), "two words", "--user", exit_code=37)
+        result = self.run_launcher(self.launcher(self.fixture("arguments.toml", target=self.target)), "two words", "--user", exit_code=37)
         self.assertEqual(result.returncode, 37, result.stderr)
         self.assertEqual(self.arguments(), ["--fixed", "value with spaces", "two words", "--user"])
     def test_forward_false_and_relative_target_workdir(self):
         local = self.case_dir / "bin" / "recorder.exe"; local.parent.mkdir(); shutil.copy2(self.target, local); (self.case_dir / "work").mkdir()
-        result = self.run(self.launcher(self.fixture("relative.toml")), "ignored")
+        result = self.run_launcher(self.launcher(self.fixture("relative.toml")), "ignored")
         self.assertEqual(result.returncode, 0, result.stderr); self.assertEqual(self.arguments(), ["fixed"]); self.assertEqual(Path(self.context()["cwd"]), self.case_dir / "work")
     def test_expansion_child_environment_and_path_prepend(self):
         config = self.fixture("environment.toml", target=self.target)
-        result = self.run(self.launcher(config), environment={"TEST_TARGET": str(self.target), "TEST_ARG": "expanded", "SOURCE_VALUE": "source", "REMOVE_ME": "remove"})
+        result = self.run_launcher(self.launcher(config), environment={"TEST_TARGET": str(self.target), "TEST_ARG": "expanded", "SOURCE_VALUE": "source", "REMOVE_ME": "remove"})
         self.assertEqual(result.returncode, 0, result.stderr); self.assertEqual(self.arguments(), ["expanded"]); self.assertEqual(self.context()["SHIM_TEST_VALUE"], "source-child"); self.assertEqual(self.context()["REMOVE_ME"], "<missing>")
-        result = self.run(self.launcher(self.fixture("path-prepend.toml", target=self.target)))
+        result = self.run_launcher(self.launcher(self.fixture("path-prepend.toml", target=self.target)))
         self.assertEqual(result.returncode, 0, result.stderr); self.assertEqual(self.context()["PATH"], f"{self.case_dir / 'one'};{self.case_dir / 'two'};tail")
     def test_missing_malformed_and_invalid_schema_fail_before_launch(self):
         cases = [(None, "Missing configuration file"), ("target = [broken\n", "malformed TOML")]
         cases += [(self.fixture(x, target=self.target), None) for x in ["missing-target.toml", "unknown-key.toml", "bad-argument.toml", "duplicate-remove.toml", "set-remove-conflict.toml", "unset-variable.toml"]]
         for config, expected in cases:
             with self.subTest(config=config):
-                launcher = self.launcher(config); result = self.run(launcher)
+                launcher = self.launcher(config); result = self.run_launcher(launcher)
                 self.assertEqual(result.returncode, 1); self.assertIn(str(launcher.with_suffix(".config.toml")), result.stderr)
                 if expected: self.assertIn(expected, result.stderr)
                 self.assertFalse(self.output.exists())

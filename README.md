@@ -46,6 +46,22 @@ The launcher always reads the configuration next to itself, rather than from
 the current directory. Relative `target`, `working_dir`, and `path_prepend`
 paths are resolved from that configuration directory.
 
+### Create a shim from the command line
+
+`artifacts\make-shim.cmd` creates a launcher and a commented configuration
+file in the current directory. Its target is the required first argument:
+
+```bat
+artifacts\make-shim.cmd "%LOCALAPPDATA%\Programs\Example\tool.exe" --name=tool --type=cli --elevate=false
+```
+
+Options are `--name=NAME`, `--type=cli|gui`, `--elevate=true|false`,
+`--forward-arguments=true|false`, and `--working-dir=PATH`. The defaults are
+the target's basename, `cli`, `false`, and `true`, respectively. The generated
+`.config.toml` includes commented examples for fixed arguments, child-only
+environment variables, variable removal, and `PATH` prefixes. It refuses to
+overwrite an existing executable or configuration file.
+
 ## Console and GUI launchers
 
 Build output contains two launchers with identical TOML configuration behavior:
@@ -146,7 +162,16 @@ target. Configuration files must be valid UTF-8.
 
 The project requires a Windows C++23 toolchain, CMake 3.23 or newer, and Conan
 2. Dependencies, including `fmt` and `tomlplusplus`, are provided by Conan.
-From an MSYS2 UCRT64 shell or a Visual Studio developer prompt:
+From a Windows command prompt, an MSYS2 UCRT64 shell, or a Visual Studio
+developer prompt:
+
+```bat
+build.cmd
+```
+
+`build.cmd` creates a default Conan profile when necessary, installs
+dependencies, configures CMake, and builds the project. To run those steps
+individually:
 
 ```bat
 conan profile detect --force
@@ -155,8 +180,32 @@ cmake --preset conan-release
 cmake --build --preset conan-release
 ```
 
-The resulting `shim-console.exe` and `shim-gui.exe` files are in the configured
-build output directory.
+Before running the script from a normal Windows command prompt, set one of
+these environment variables to locate the UCRT64 toolkit:
+
+```bat
+set "EXE_SHIM_UCRT64_ROOT=C:\opt\msys\current\App\ucrt64"
+build.cmd
+```
+
+Alternatively, set `MSYS2_INSTALL_PATH` to the MSYS2 installation directory;
+the script uses its `ucrt64` subdirectory. If neither variable is set,
+`build.cmd` requires both `g++` and `mingw32-make` to already be on `PATH`.
+
+Conan and CMake generate all build-system files, intermediate objects, static
+libraries, and test helpers in `build/`. Final distribution artifacts are
+written directly to `artifacts/`: `shim-console.exe`, `shim-gui.exe`, and
+`make-shim.cmd`.
+
+## Repository layout
+
+- `src/` contains the shared launcher implementation and its console and GUI
+  entry points.
+- `tests/` contains the Python integration suite, its TOML fixtures, and
+  test-only helper executables in `tests/helpers/`.
+- `docs/` contains project guidance and design notes.
+- `build/` is generated CMake/Conan build output and is not committed.
+- `artifacts/` contains final distribution artifacts and is not committed.
 
 ## Testing
 
