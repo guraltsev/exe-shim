@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(exe_shim VERSION 1.0.0 LANGUAGES CXX)
+project(exe_shim VERSION 0.1.0 LANGUAGES CXX)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   add_link_options(-static)
