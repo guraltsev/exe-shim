@@ -48,11 +48,11 @@ paths are resolved from that configuration directory.
 
 ### Create a shim from the command line
 
-`artifacts\make-shim.cmd` creates a launcher and a commented configuration
+`make-shim.cmd` creates a launcher and a commented configuration
 file in the current directory. Its target is the required first argument:
 
 ```bat
-artifacts\make-shim.cmd "%LOCALAPPDATA%\Programs\Example\tool.exe" --name=tool --type=cli --elevate=false
+make-shim.cmd "%LOCALAPPDATA%\Programs\Example\tool.exe" --name=tool --type=cli --elevate=false
 ```
 
 Options are `--name=NAME`, `--type=cli|gui`, `--elevate=true|false`,
