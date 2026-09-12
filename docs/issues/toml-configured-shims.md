@@ -28,6 +28,7 @@ is resolved and launched.
 # tool.config.toml
 target = "%LOCALAPPDATA%\\Programs\\Example\\tool.exe"
 forward_arguments = true
+target_dir_as_working_dir = false
 
 [[argument]]
 value = "--config"
@@ -68,6 +69,7 @@ target = "%USERPROFILE%\\bin\\real-tool.exe"
 # Optional
 forward_arguments = true # Defaults to true.
 elevate = false # Defaults to false.
+target_dir_as_working_dir = false # Defaults to false; inherit the caller's directory.
 working_dir = "%USERPROFILE%\\projects\\demo"
 remove_environment = ["PYTHONHOME", "VIRTUAL_ENV"]
 path_prepend = ["%USERPROFILE%\\bin", "tools"]
@@ -126,6 +128,12 @@ the shim must report the failure and return a non-zero exit code; it must not
 run the target unelevated. When `false`, retain the current behavior of
 requesting elevation only when Windows reports that the target requires it.
 
+`target_dir_as_working_dir` is an optional Boolean that defaults to `false`.
+When omitted or `false`, the target inherits the launcher's current working
+directory. When `true`, the target starts in the directory containing the
+resolved `target`. It may not be combined with `working_dir`; use `working_dir`
+when a different directory is required.
+
 ## Launch behavior
 
 1. Determine the launcher path and locate its TOML configuration.
@@ -134,7 +142,8 @@ requesting elevation only when Windows reports that the target requires it.
 4. Construct an argument vector from configured `[[argument]]` entries. When
    `forward_arguments` is true, append the caller's arguments; otherwise omit
    them. Use the existing Windows quoting logic.
-5. Start the target with the configured working directory and a child
+5. Start the target with the configured working directory (or the caller's
+   directory when no working-directory option is set) and a child
    environment derived from the parent's environment, with
    `remove_environment` entries removed and `[environment]` entries
    overwriting inherited variables, then prepend `path_prepend` entries to

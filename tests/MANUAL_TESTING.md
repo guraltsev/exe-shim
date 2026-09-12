@@ -8,7 +8,10 @@ replace `{{target}}` with a real executable such as
 From a different current directory, run `tool.exe /c echo launcher-ok`. Confirm
 that configured arguments precede user arguments. Repeat with a relative
 target after moving the directory, and verify it resolves from the
-configuration directory.
+configuration directory. With no working-directory setting, verify the target
+keeps the directory from which `tool.exe` was launched. Then add
+`target_dir_as_working_dir = true` and verify it starts in the directory
+containing the target instead.
 
 Use `environment.toml` with real defined variables to confirm child-only
 overrides and removals. Rename the configuration, introduce invalid TOML, and

@@ -43,6 +43,12 @@ class TestTomlConfiguredShims(unittest.TestCase):
         result = self.run_launcher(self.launcher(self.fixture("arguments.toml", target=self.target)), "two words", "--user", exit_code=37)
         self.assertEqual(result.returncode, 37, result.stderr)
         self.assertEqual(self.arguments(), ["--fixed", "value with spaces", "two words", "--user"])
+        self.assertEqual(Path(self.context()["cwd"]), self.case_dir)
+    def test_target_directory_as_working_dir_is_opt_in(self):
+        config = self.fixture("target-dir-working-dir.toml", target=self.target)
+        result = self.run_launcher(self.launcher(config))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(self.context()["cwd"]), self.target.parent)
     def test_forward_false_and_relative_target_workdir(self):
         local = self.case_dir / "bin" / "recorder.exe"; local.parent.mkdir(); shutil.copy2(self.target, local); (self.case_dir / "work").mkdir()
         result = self.run_launcher(self.launcher(self.fixture("relative.toml")), "ignored")
@@ -55,7 +61,7 @@ class TestTomlConfiguredShims(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr); self.assertEqual(self.context()["PATH"], f"{self.case_dir / 'one'};{self.case_dir / 'two'};tail")
     def test_missing_malformed_and_invalid_schema_fail_before_launch(self):
         cases = [(None, "Missing configuration file"), ("target = [broken\n", "malformed TOML")]
-        cases += [(self.fixture(x, target=self.target), None) for x in ["missing-target.toml", "unknown-key.toml", "bad-argument.toml", "duplicate-remove.toml", "set-remove-conflict.toml", "unset-variable.toml"]]
+        cases += [(self.fixture(x, target=self.target), None) for x in ["missing-target.toml", "unknown-key.toml", "bad-argument.toml", "duplicate-remove.toml", "set-remove-conflict.toml", "unset-variable.toml", "working-dir-conflict.toml"]]
         for config, expected in cases:
             with self.subTest(config=config):
                 launcher = self.launcher(config); result = self.run_launcher(launcher)

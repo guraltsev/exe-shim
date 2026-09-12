@@ -4,7 +4,9 @@
 launcher executable to the command name you want, place a matching
 `.config.toml` file beside it, and the launcher starts the configured target
 with predictable arguments, environment changes, working directory, and exit
-code handling. It does not invoke a shell, so it avoids shell-specific quoting
+code handling. By default, the target keeps the caller's current working
+directory; the launcher's directory and the target's directory are not used
+implicitly. It does not invoke a shell, so it avoids shell-specific quoting
 and command-injection behavior.
 
 For example, `gs.exe` reads `gs.config.toml`. It can launch Git with fixed
@@ -140,6 +142,7 @@ returns a non-zero exit code and does not start the target unelevated.
 target = "%LOCALAPPDATA%\\Programs\\Example\\tool.exe"
 forward_arguments = true # Defaults to true.
 elevate = false           # Defaults to false.
+target_dir_as_working_dir = false # Defaults to false.
 working_dir = "project"
 remove_environment = ["VIRTUAL_ENV"]
 path_prepend = ["tools"]
@@ -157,6 +160,11 @@ and `[environment]` may not name the same variable (Windows variable names are
 case-insensitive). Invalid TOML, unknown keys, invalid values, and references
 to unset `%NAME%` variables cause the launcher to fail before starting a
 target. Configuration files must be valid UTF-8.
+
+When `working_dir` is omitted, the target inherits the launcher's current
+working directory. Set `target_dir_as_working_dir = true` to instead use the
+directory containing the resolved `target`. `working_dir` and
+`target_dir_as_working_dir` may not be used together.
 
 ## Build
 

@@ -95,6 +95,10 @@ copy /b /y "%~dp0%launcher%" "%output%" >nul || exit /b 1
   echo.
   echo # Request UAC elevation before starting the target.
   echo elevate = %elevate%
+  echo.
+  echo # Use the directory containing target as its working directory when true.
+  echo # When false, target inherits the directory from which this shim was launched.
+  echo target_dir_as_working_dir = false
   if defined working_dir echo working_dir = "!toml_working_dir!"
   echo.
   echo # Add one or more fixed arguments. They are placed before caller arguments.

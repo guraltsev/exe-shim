@@ -45,6 +45,7 @@ struct shim_configuration {
   std::vector<std::wstring> arguments;
   bool forward_arguments = true;
   bool elevate = false;
+  bool target_dir_as_working_dir = false;
   std::optional<std::wstring> working_directory;
   std::vector<environment_entry> environment;
   std::vector<std::wstring> remove_environment;
@@ -132,7 +133,7 @@ struct shim_configuration {
     return std::nullopt;
   }
 
-  constexpr std::string_view allowed[] = {"target", "forward_arguments", "elevate", "working_dir", "remove_environment", "path_prepend", "environment", "argument"};
+  constexpr std::string_view allowed[] = {"target", "forward_arguments", "elevate", "target_dir_as_working_dir", "working_dir", "remove_environment", "path_prepend", "environment", "argument"};
   for (const auto& [key, node] : table) {
     if (std::ranges::find(allowed, key.str()) == std::end(allowed)) { std::wcerr << config_path.wstring() << L": unknown key " << utf8_to_wide(std::string(key.str())).value_or(L"?") << L".\n"; return std::nullopt; }
   }
@@ -147,14 +148,16 @@ struct shim_configuration {
   std::filesystem::path target(*expanded_target);
   config.target = (target.is_absolute() ? target : config_path.parent_path() / target).lexically_normal().wstring();
 
-  for (const auto& [name, destination] : {std::pair{"forward_arguments", &config.forward_arguments}, {"elevate", &config.elevate}}) {
+  for (const auto& [name, destination] : {std::pair{"forward_arguments", &config.forward_arguments}, {"elevate", &config.elevate}, {"target_dir_as_working_dir", &config.target_dir_as_working_dir}}) {
     if (const toml::node* node = table.get(name)) { const auto value = node->value<bool>(); if (!value) { std::wcerr << config_path.wstring() << L": " << utf8_to_wide(name).value_or(L"?") << L" must be a Boolean.\n"; return std::nullopt; } *destination = *value; }
   }
   if (const toml::node* node = table.get("working_dir")) {
+    if (config.target_dir_as_working_dir) { std::wcerr << config_path.wstring() << L": working_dir and target_dir_as_working_dir may not be used together.\n"; return std::nullopt; }
     const auto value = toml_string(*node, L"working_dir", config_path); if (!value) return std::nullopt;
     const auto expanded = expand_environment(*value, L"working_dir", config_path, inherited); if (!expanded) return std::nullopt;
     std::filesystem::path directory(*expanded); config.working_directory = (directory.is_absolute() ? directory : config_path.parent_path() / directory).lexically_normal().wstring();
   }
+  if (config.target_dir_as_working_dir) config.working_directory = std::filesystem::path(config.target).parent_path().wstring();
   if (const toml::array* arguments = table["argument"].as_array()) for (const toml::node& item : *arguments) {
     const toml::table* argument = item.as_table(); const toml::node* value = argument == nullptr ? nullptr : argument->get("value");
     if (argument == nullptr || argument->size() != 1 || value == nullptr) { std::wcerr << config_path.wstring() << L": each argument must contain only string value.\n"; return std::nullopt; }
