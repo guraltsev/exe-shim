@@ -1,2 +1,3 @@
+# Misspelled keys are rejected instead of being ignored.
 target = "{{target}}"
 targte = "typo"

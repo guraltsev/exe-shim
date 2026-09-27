@@ -1,2 +1,3 @@
+# Environment names are case-insensitive and duplicates are rejected.
 target = "{{target}}"
 remove_environment = ["ONE", "one"]

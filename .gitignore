@@ -18,8 +18,8 @@ htmlcov/
 *.dll
 *.lib
 *.exp
-build/
-artifacts/
+.build/
+.artifacts/
 CMakeUserPresets.json
 Debug/
 Release/

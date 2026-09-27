@@ -1,3 +1,4 @@
+# Explicit and target-derived working directories cannot be combined.
 target = "{{target}}"
 target_dir_as_working_dir = true
 working_dir = "work"

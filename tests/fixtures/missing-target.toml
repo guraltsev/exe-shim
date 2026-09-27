@@ -1,1 +1,2 @@
+# A launcher cannot start without its required target key.
 forward_arguments = true

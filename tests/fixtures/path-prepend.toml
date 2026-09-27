@@ -1,3 +1,4 @@
+# Relative entries resolve beside the config and precede the inherited PATH.
 target = "{{target}}"
 path_prepend = ["one", "two"]
 

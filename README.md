@@ -183,7 +183,7 @@ individually:
 
 ```bat
 conan profile detect --force
-conan install . --output-folder=build --build=missing
+conan install . --output-folder=.build --build=missing
 cmake --preset conan-release
 cmake --build --preset conan-release
 ```
@@ -192,18 +192,23 @@ Before running the script from a normal Windows command prompt, set one of
 these environment variables to locate the UCRT64 toolkit:
 
 ```bat
-set "EXE_SHIM_UCRT64_ROOT=C:\opt\msys\current\App\ucrt64"
+set "EXE_SHIM_UCRT64_ROOT=C:\path\to\msys2\ucrt64"
 build.cmd
 ```
 
 Alternatively, set `MSYS2_INSTALL_PATH` to the MSYS2 installation directory;
 the script uses its `ucrt64` subdirectory. If neither variable is set,
-`build.cmd` requires both `g++` and `mingw32-make` to already be on `PATH`.
+`build.cmd` detects `g++` from `PATH`. It also detects Ninja when available,
+otherwise it uses `mingw32-make`.
 
 Conan and CMake generate all build-system files, intermediate objects, static
-libraries, and test helpers in `build/`. Final distribution artifacts are
-written directly to `artifacts/`: `shim-console.exe`, `shim-gui.exe`, and
-`make-shim.cmd`.
+libraries, and test helpers in `.build/`. Final distribution artifacts are
+written directly to `.artifacts/`: `shim-console.exe`, `shim-gui.exe`, their
+`.static.exe` counterparts, the dynamic launchers' required runtime DLLs and
+license notices, the project's `LICENSE-exe-shim-MIT.txt` and
+`LICENSE-exe-shim-UNLICENSE.txt`, `README-exe-shim.md`, and `make-shim.cmd`.
+The normal-named launchers are dynamic;
+keep their DLLs alongside them when distributing them.
 
 ## Repository layout
 
@@ -212,8 +217,8 @@ written directly to `artifacts/`: `shim-console.exe`, `shim-gui.exe`, and
 - `tests/` contains the Python integration suite, its TOML fixtures, and
   test-only helper executables in `tests/helpers/`.
 - `docs/` contains project guidance and design notes.
-- `build/` is generated CMake/Conan build output and is not committed.
-- `artifacts/` contains final distribution artifacts and is not committed.
+- `.build/` is generated CMake/Conan build output and is not committed.
+- `.artifacts/` contains final distribution artifacts and is not committed.
 
 ## Testing
 

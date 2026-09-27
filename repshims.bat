@@ -1,5 +1,8 @@
 @echo off
 
+rem Replace user and machine Scoop shims with the executable in this directory.
+rem The loops intentionally use Scoop's configured roots rather than assuming the
+rem default installation locations.
 if not defined SCOOP set SCOOP=%USERPROFILE%\scoop
 
 for %%x in ("%SCOOP%\shims\*.exe") do (

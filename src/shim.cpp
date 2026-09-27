@@ -1,3 +1,10 @@
+/* Launch a configured Windows target with controlled arguments and environment.
+ *
+ * The launcher reads a TOML file beside its executable, resolves paths and
+ * environment references, then either starts the target directly or asks the
+ * shell for elevation. The non-elevated path uses a job object so that a child
+ * process tree is cleaned up when the shim exits.
+ */
 #include <Windows.h>
 #include <shellapi.h>
 
@@ -19,6 +26,7 @@
 
 namespace {
 
+/* Own a Win32 HANDLE and close it exactly once when the wrapper is destroyed. */
 class unique_handle {
  public:
   explicit unique_handle(HANDLE handle = nullptr) noexcept : handle_(handle) {}
@@ -37,23 +45,32 @@ class unique_handle {
   HANDLE handle_;
 };
 
+/* Own the argv array returned by CommandLineToArgvW. */
 using local_argument_list = std::unique_ptr<wchar_t*, decltype(&LocalFree)>;
 
-struct environment_entry { std::wstring name; std::wstring value; };
-struct shim_configuration {
-  std::wstring target;
-  std::vector<std::wstring> arguments;
-  bool forward_arguments = true;
-  bool elevate = false;
-  bool target_dir_as_working_dir = false;
-  std::optional<std::wstring> working_directory;
-  std::vector<environment_entry> environment;
-  std::vector<std::wstring> remove_environment;
-  std::vector<std::wstring> path_prepend;
+/* Store one environment variable without exposing the process-block format. */
+struct environment_entry {
+  std::wstring name;
+  std::wstring value;
 };
 
+/* Hold the validated, fully resolved values used to launch one target. */
+struct shim_configuration {
+  std::wstring target;                             // Absolute normalized target path.
+  std::vector<std::wstring> arguments;             // Fixed arguments from TOML.
+  bool forward_arguments = true;                   // Append caller arguments.
+  bool elevate = false;                            // Use ShellExecuteExW with runas.
+  bool target_dir_as_working_dir = false;          // Derive cwd from target path.
+  std::optional<std::wstring> working_directory;   // Explicit or derived cwd.
+  std::vector<environment_entry> environment;      // Child-only replacements.
+  std::vector<std::wstring> remove_environment;    // Inherited names to remove.
+  std::vector<std::wstring> path_prepend;          // Resolved directories before PATH.
+};
+
+/* Convert a Win32 error code to the short diagnostic used by this launcher. */
 [[nodiscard]] std::wstring format_win32_error(DWORD error) { return fmt::format(L"Windows error {}", error); }
 
+/* Decode a UTF-8 TOML string while rejecting malformed input. */
 [[nodiscard]] std::optional<std::wstring> utf8_to_wide(const std::string& text) {
   if (text.empty()) return std::wstring{};
   if (text.size() > static_cast<size_t>(std::numeric_limits<int>::max())) return std::nullopt;
@@ -64,12 +81,14 @@ struct shim_configuration {
   return result;
 }
 
+/* Compare Windows environment names case-insensitively using lowercase text. */
 [[nodiscard]] std::wstring folded(std::wstring_view value) {
   std::wstring result(value);
   std::ranges::transform(result, result.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
   return result;
 }
 
+/* Snapshot the current process environment before applying TOML changes. */
 [[nodiscard]] std::vector<environment_entry> inherited_environment() {
   std::vector<environment_entry> result;
   wchar_t* block = GetEnvironmentStringsW();
@@ -83,11 +102,13 @@ struct shim_configuration {
   return result;
 }
 
+/* Test whether an environment name exists in the inherited snapshot. */
 [[nodiscard]] bool inherited_contains(const std::vector<environment_entry>& environment, std::wstring_view name) {
   const auto expected = folded(name);
   return std::ranges::any_of(environment, [&](const environment_entry& entry) { return folded(entry.name) == expected; });
 }
 
+/* Expand `%NAME%` references and reject names missing from the inherited environment. */
 [[nodiscard]] std::optional<std::wstring> expand_environment(std::wstring_view value, std::wstring_view key,
     const std::filesystem::path& config_path, const std::vector<environment_entry>& inherited) {
   // Detect undefined %NAME% references before asking Windows to expand them; the API otherwise leaves them literal.
@@ -110,6 +131,7 @@ struct shim_configuration {
   return std::wstring(buffer.data());
 }
 
+/* Read one TOML string and convert its UTF-8 representation to UTF-16. */
 [[nodiscard]] std::optional<std::wstring> toml_string(const toml::node& node, std::wstring_view key,
     const std::filesystem::path& config_path) {
   const auto value = node.value<std::string>();
@@ -119,10 +141,12 @@ struct shim_configuration {
   return wide;
 }
 
+/* Validate the subset of environment names that can be represented in a block. */
 [[nodiscard]] bool valid_environment_name(std::wstring_view name) {
   return !name.empty() && name.find(L'=') == std::wstring_view::npos && name.find(L'\0') == std::wstring_view::npos;
 }
 
+/* Parse, validate, expand, and normalize a launcher's sibling TOML file. */
 [[nodiscard]] std::optional<shim_configuration> read_configuration(const std::filesystem::path& config_path) {
   if (!std::filesystem::exists(config_path)) { std::wcerr << L"Missing configuration file: " << config_path.wstring() << L".\n"; return std::nullopt; }
   toml::table table;
@@ -133,10 +157,12 @@ struct shim_configuration {
     return std::nullopt;
   }
 
+  // Reject unknown keys so misspelled options cannot silently change behavior.
   constexpr std::string_view allowed[] = {"target", "forward_arguments", "elevate", "target_dir_as_working_dir", "working_dir", "remove_environment", "path_prepend", "environment", "argument"};
   for (const auto& [key, node] : table) {
     if (std::ranges::find(allowed, key.str()) == std::end(allowed)) { std::wcerr << config_path.wstring() << L": unknown key " << utf8_to_wide(std::string(key.str())).value_or(L"?") << L".\n"; return std::nullopt; }
   }
+  // Resolve the target relative to the configuration file, not the caller's cwd.
   const toml::node* target_node = table.get("target");
   if (target_node == nullptr) { std::wcerr << config_path.wstring() << L": required key target is missing.\n"; return std::nullopt; }
   const auto inherited = inherited_environment();
@@ -148,9 +174,11 @@ struct shim_configuration {
   std::filesystem::path target(*expanded_target);
   config.target = (target.is_absolute() ? target : config_path.parent_path() / target).lexically_normal().wstring();
 
+  // Parse the boolean switches together so all optional flags share one type check.
   for (const auto& [name, destination] : {std::pair{"forward_arguments", &config.forward_arguments}, {"elevate", &config.elevate}, {"target_dir_as_working_dir", &config.target_dir_as_working_dir}}) {
     if (const toml::node* node = table.get(name)) { const auto value = node->value<bool>(); if (!value) { std::wcerr << config_path.wstring() << L": " << utf8_to_wide(name).value_or(L"?") << L" must be a Boolean.\n"; return std::nullopt; } *destination = *value; }
   }
+  // An explicit working directory and a target-derived one are alternatives.
   if (const toml::node* node = table.get("working_dir")) {
     if (config.target_dir_as_working_dir) { std::wcerr << config_path.wstring() << L": working_dir and target_dir_as_working_dir may not be used together.\n"; return std::nullopt; }
     const auto value = toml_string(*node, L"working_dir", config_path); if (!value) return std::nullopt;
@@ -158,6 +186,8 @@ struct shim_configuration {
     std::filesystem::path directory(*expanded); config.working_directory = (directory.is_absolute() ? directory : config_path.parent_path() / directory).lexically_normal().wstring();
   }
   if (config.target_dir_as_working_dir) config.working_directory = std::filesystem::path(config.target).parent_path().wstring();
+
+  // Keep configured arguments in TOML order; caller arguments are appended later.
   if (const toml::array* arguments = table["argument"].as_array()) for (const toml::node& item : *arguments) {
     const toml::table* argument = item.as_table(); const toml::node* value = argument == nullptr ? nullptr : argument->get("value");
     if (argument == nullptr || argument->size() != 1 || value == nullptr) { std::wcerr << config_path.wstring() << L": each argument must contain only string value.\n"; return std::nullopt; }
@@ -165,10 +195,12 @@ struct shim_configuration {
     const auto expanded = expand_environment(*text, L"argument.value", config_path, inherited); if (!expanded) return std::nullopt;
     config.arguments.push_back(*expanded);
   } else if (table.contains("argument")) { std::wcerr << config_path.wstring() << L": argument must be an array of tables.\n"; return std::nullopt; }
+  // Read list-valued environment options before checking conflicts and duplicates.
   for (const auto& [name, destination] : {std::pair{"remove_environment", &config.remove_environment}, {"path_prepend", &config.path_prepend}}) if (const toml::node* node = table.get(name)) {
     const toml::array* values = node->as_array(); if (!values) { std::wcerr << config_path.wstring() << L": " << utf8_to_wide(name).value_or(L"?") << L" must be an array.\n"; return std::nullopt; }
     for (const toml::node& item : *values) { const auto text = toml_string(item, utf8_to_wide(name).value_or(L"?"), config_path); if (!text) return std::nullopt; destination->push_back(*text); }
   }
+  // Environment names are case-insensitive on Windows, including conflict checks.
   std::vector<std::wstring> seen_removed;
   for (const auto& name : config.remove_environment) { if (!valid_environment_name(name) || std::ranges::find(seen_removed, folded(name)) != seen_removed.end()) { std::wcerr << config_path.wstring() << L": remove_environment contains an invalid or duplicate name.\n"; return std::nullopt; } seen_removed.push_back(folded(name)); }
   if (const toml::table* values = table["environment"].as_table()) for (const auto& [key, node] : *values) {
@@ -177,52 +209,83 @@ struct shim_configuration {
     if (std::ranges::find(seen_removed, folded(*name)) != seen_removed.end()) { std::wcerr << config_path.wstring() << L": environment and remove_environment both name " << *name << L".\n"; return std::nullopt; }
     const auto expanded = expand_environment(*text, L"environment value", config_path, inherited); if (!expanded) return std::nullopt; config.environment.push_back({*name, *expanded});
   } else if (table.contains("environment")) { std::wcerr << config_path.wstring() << L": environment must be a table.\n"; return std::nullopt; }
+  // Resolve each PATH component from the config directory and reject delimiters
+  // so one entry cannot inject multiple directories into the child PATH.
   for (std::wstring& entry : config.path_prepend) { const auto expanded = expand_environment(entry, L"path_prepend", config_path, inherited); if (!expanded || expanded->empty() || expanded->find(L'\0') != std::wstring::npos || expanded->find(L';') != std::wstring::npos) { std::wcerr << config_path.wstring() << L": path_prepend has an invalid entry.\n"; return std::nullopt; } std::filesystem::path path(*expanded); entry = (path.is_absolute() ? path : config_path.parent_path() / path).lexically_normal().wstring(); }
   return config;
 }
 
+/* Quote one argument according to the CommandLineToArgvW/CreateProcess rules. */
 [[nodiscard]] std::wstring quote_argument(std::wstring_view value) {
   std::wstring quoted{L"\""}; size_t slashes = 0;
   for (const wchar_t character : value) { if (character == L'\\') ++slashes; else if (character == L'\"') { quoted.append(slashes + 1, L'\\'); quoted += character; slashes = 0; } else { quoted.append(slashes, L'\\'); quoted += character; slashes = 0; } }
   quoted.append(slashes * 2, L'\\'); return quoted + L'"';
 }
 
+/* Return caller arguments without argv[0], while LocalFree owns the Win32 array. */
 [[nodiscard]] std::optional<std::vector<std::wstring>> user_arguments() {
   int count = 0; const local_argument_list values(CommandLineToArgvW(GetCommandLineW(), &count), &LocalFree);
   if (!values || count < 1) return std::nullopt;
   std::vector<std::wstring> result; for (int index = 1; index < count; ++index) result.emplace_back(values.get()[index]); return result;
 }
 
+/* Build the double-NUL-terminated environment block required by CreateProcessW. */
 [[nodiscard]] std::vector<wchar_t> child_environment(const shim_configuration& config) {
   auto values = inherited_environment();
+
+  // Apply removals first so an explicit replacement cannot be duplicated.
   for (const auto& name : config.remove_environment) std::erase_if(values, [&](const environment_entry& entry) { return folded(entry.name) == folded(name); });
   for (const auto& replacement : config.environment) { std::erase_if(values, [&](const environment_entry& entry) { return folded(entry.name) == folded(replacement.name); }); values.push_back(replacement); }
+
+  // Preserve the inherited PATH after the configured directories, if it exists.
   if (!config.path_prepend.empty()) { std::wstring prefix; for (const auto& entry : config.path_prepend) { if (!prefix.empty()) prefix += L';'; prefix += entry; } const auto path = std::ranges::find_if(values, [](const environment_entry& entry) { return folded(entry.name) == L"path"; }); if (path != values.end() && !path->value.empty()) prefix += L';' + path->value; if (path != values.end()) values.erase(path); values.push_back({L"PATH", std::move(prefix)}); }
   std::ranges::sort(values, [](const environment_entry& left, const environment_entry& right) { return folded(left.name) < folded(right.name); });
+
+  // The final empty element terminates the block, and the vector remains alive
+  // until CreateProcessW has copied it.
   std::vector<wchar_t> block; for (const auto& entry : values) { block.insert(block.end(), entry.name.begin(), entry.name.end()); block.push_back(L'='); block.insert(block.end(), entry.value.begin(), entry.value.end()); block.push_back(L'\0'); } block.push_back(L'\0'); return block;
 }
 
+/* Consume console-control events while the shim waits for its child. */
 BOOL WINAPI control_handler(DWORD) { return TRUE; }
 
+/* Locate the config, construct the child process, and propagate its exit code. */
 [[nodiscard]] int run() {
   std::vector<wchar_t> module_path(260);
+
+  // Retry with a larger buffer because long executable paths are valid on Windows.
   DWORD length = 0; do { length = GetModuleFileNameW(nullptr, module_path.data(), static_cast<DWORD>(module_path.size())); module_path.resize(module_path.size() * 2); } while (length >= module_path.size() / 2 - 1);
   if (length == 0) { std::wcerr << L"Could not determine launcher path.\n"; return 1; }
   std::filesystem::path config_path(std::wstring(module_path.data(), length)); config_path.replace_extension(); config_path += L".config.toml";
+
+  // Fail before creating any process when the sibling configuration is invalid.
   const auto config = read_configuration(config_path); if (!config) return 1;
   const auto forwarded = user_arguments(); if (!forwarded) { std::wcerr << L"Could not parse command-line arguments.\n"; return 1; }
   std::vector<std::wstring> arguments = config->arguments; if (config->forward_arguments) arguments.insert(arguments.end(), forwarded->begin(), forwarded->end());
+
+  // CreateProcessW parses a mutable command line, while ShellExecuteExW needs
+  // only the portion after the executable path.
   std::wstring command_line = quote_argument(config->target); for (const auto& argument : arguments) command_line += L' ' + quote_argument(argument);
   const std::wstring parameters = command_line.substr(quote_argument(config->target).size() + (arguments.empty() ? 0 : 1));
+
+  // The shell owns the UAC consent flow; retain only the returned process handle.
   if (config->elevate) { SHELLEXECUTEINFOW execution{}; execution.cbSize = sizeof(execution); execution.fMask = SEE_MASK_NOCLOSEPROCESS; execution.lpVerb = L"runas"; execution.lpFile = config->target.c_str(); execution.lpParameters = parameters.c_str(); execution.lpDirectory = config->working_directory ? config->working_directory->c_str() : nullptr; execution.nShow = SW_SHOW; if (!ShellExecuteExW(&execution)) { std::wcerr << L"Unable to create elevated process for " << config->target << L": " << format_win32_error(GetLastError()) << L".\n"; return 1; } unique_handle process(execution.hProcess); WaitForSingleObject(process.get(), INFINITE); DWORD code = 1; return GetExitCodeProcess(process.get(), &code) ? static_cast<int>(code) : 1; }
   auto environment = child_environment(*config); std::vector<wchar_t> mutable_command(command_line.begin(), command_line.end()); mutable_command.push_back(L'\0');
+
+  // Start suspended so the child can be assigned to the job before it runs.
   unique_handle job(CreateJobObjectW(nullptr, nullptr)); if (!job) { std::wcerr << L"Could not create job object: " << format_win32_error(GetLastError()) << L".\n"; return 1; }
   JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{}; limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK; if (!SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits))) { std::wcerr << L"Could not configure job object.\n"; return 1; }
   STARTUPINFOW startup{}; startup.cb = sizeof(startup); PROCESS_INFORMATION process{};
   if (!CreateProcessW(config->target.c_str(), mutable_command.data(), nullptr, nullptr, TRUE, CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, environment.data(), config->working_directory ? config->working_directory->c_str() : nullptr, &startup, &process)) { const DWORD error = GetLastError(); if (error == ERROR_ELEVATION_REQUIRED) { std::wcerr << L"Target requires elevation; set elevate = true in " << config_path.wstring() << L".\n"; } else std::wcerr << L"Could not create target " << config->target << L": " << format_win32_error(error) << L".\n"; return 1; }
+
+  // Assignment must happen before resuming; otherwise a fast child could escape
+  // the kill-on-job-close guarantee.
   unique_handle process_handle(process.hProcess); unique_handle thread_handle(process.hThread); if (!AssignProcessToJobObject(job.get(), process_handle.get())) { const DWORD error = GetLastError(); TerminateProcess(process_handle.get(), 1); std::wcerr << L"Could not assign child process to its job: " << format_win32_error(error) << L".\n"; return 1; }
   if (ResumeThread(thread_handle.get()) == static_cast<DWORD>(-1)) { const DWORD error = GetLastError(); TerminateProcess(process_handle.get(), 1); std::wcerr << L"Could not start child process: " << format_win32_error(error) << L".\n"; return 1; }
+
+  // Wait for the target and return its status; RAII closes all process handles.
   SetConsoleCtrlHandler(control_handler, TRUE); WaitForSingleObject(process_handle.get(), INFINITE); DWORD code = 1; return GetExitCodeProcess(process_handle.get(), &code) ? static_cast<int>(code) : 1;
 }
 }  // namespace
+/** Expose the private workflow to the console and GUI entrypoints. */
 int shim_main() { return run(); }

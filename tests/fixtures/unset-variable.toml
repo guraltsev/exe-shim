@@ -1,1 +1,2 @@
+# Undefined environment references fail before target path resolution.
 target = "%EXE_SHIM_MISSING_VARIABLE%\\target.exe"

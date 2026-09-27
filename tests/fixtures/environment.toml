@@ -1,3 +1,4 @@
+# Expand inherited values, remove one variable, and replace another in the child.
 target = "%TEST_TARGET%"
 remove_environment = ["REMOVE_ME"]
 

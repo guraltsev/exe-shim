@@ -1,3 +1,4 @@
+# Relative target and cwd values resolve from this fixture's generated directory.
 target = "bin\\recorder.exe"
 working_dir = "work"
 forward_arguments = false

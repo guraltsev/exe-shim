@@ -1,3 +1,4 @@
+# Preserve TOML argument order and exercise values that require quoting.
 target = "{{target}}"
 
 [[argument]]

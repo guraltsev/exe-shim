@@ -1,0 +1,51 @@
+set(launchers
+  "@CMAKE_RUNTIME_OUTPUT_DIRECTORY@/shim-console.exe"
+  "@CMAKE_RUNTIME_OUTPUT_DIRECTORY@/shim-gui.exe")
+get_filename_component(mingw_bin "@CMAKE_CXX_COMPILER@" DIRECTORY)
+get_filename_component(mingw_root "${mingw_bin}" DIRECTORY)
+set(licenses_dir "${mingw_root}/share/licenses")
+set(artifact_dir "@CMAKE_RUNTIME_OUTPUT_DIRECTORY@")
+
+# CMake 4.2+ normalizes dependency paths before applying filters. Enable that
+# behavior when available so the System32 exclusion is stable and quiet.
+if(POLICY CMP0207)
+  cmake_policy(SET CMP0207 NEW)
+endif()
+
+# These are optional Windows components imported by system DLLs on some
+# releases. They are provided by Windows and must not be bundled with the
+# launcher; older CMake versions cannot always resolve them on every host.
+file(GET_RUNTIME_DEPENDENCIES
+  EXECUTABLES ${launchers}
+  DIRECTORIES "${mingw_bin}"
+  RESOLVED_DEPENDENCIES_VAR runtime_dlls
+  UNRESOLVED_DEPENDENCIES_VAR unresolved_dlls
+  PRE_EXCLUDE_REGEXES
+    "^(api-ms-win-.*|ext-ms-win-.*|AzureAttestManager|AzureAttestNormal|HvsiFileTrust|PdmUtilities|wpaxholder)[.]dll$"
+  POST_EXCLUDE_REGEXES ".*[\\/][Ss][Yy][Ss][Tt][Ee][Mm]32[\\/].*")
+if(unresolved_dlls)
+  message(FATAL_ERROR "Could not locate launcher runtime DLLs: ${unresolved_dlls}")
+endif()
+
+set(has_gcc_runtime FALSE)
+set(has_winpthread FALSE)
+foreach(runtime_dll IN LISTS runtime_dlls)
+  file(COPY "${runtime_dll}" DESTINATION "${artifact_dir}")
+  get_filename_component(runtime_name "${runtime_dll}" NAME)
+  if(runtime_name MATCHES "^(libgcc_s_seh-1|libstdc[+][+]-6)[.]dll$")
+    set(has_gcc_runtime TRUE)
+  elseif(runtime_name STREQUAL "libwinpthread-1.dll")
+    set(has_winpthread TRUE)
+  endif()
+endforeach()
+
+if(has_gcc_runtime)
+  file(COPY_FILE "${licenses_dir}/gcc-libs/COPYING3"
+                 "${artifact_dir}/LICENSE-GCC-3.0.txt" ONLY_IF_DIFFERENT)
+  file(COPY_FILE "${licenses_dir}/gcc-libs/COPYING.RUNTIME"
+                 "${artifact_dir}/LICENSE-GCC-RUNTIME-EXCEPTION-3.1.txt" ONLY_IF_DIFFERENT)
+endif()
+if(has_winpthread)
+  file(COPY_FILE "${licenses_dir}/libwinpthread/COPYING"
+                 "${artifact_dir}/LICENSE-libwinpthread-MIT.txt" ONLY_IF_DIFFERENT)
+endif()

@@ -1,2 +1,3 @@
+# Opt into using the resolved target's parent directory as the child cwd.
 target = "{{target}}"
 target_dir_as_working_dir = true

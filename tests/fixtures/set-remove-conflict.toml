@@ -1,3 +1,4 @@
+# Setting and removing the same Windows environment name is invalid.
 target = "{{target}}"
 remove_environment = ["SHIM_TEST_VALUE"]
 
